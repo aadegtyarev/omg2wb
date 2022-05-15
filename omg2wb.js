@@ -2,7 +2,6 @@ var gatewayName = "open-mqtt-gateway";
 var mqttBaseTopic = "";
 var debugMode = false;
 
-
 bleGateway = { //see https://docs.openmqttgateway.com/use/ble.html
     "onlysensors": true,
     "interval": 55000, //ms
