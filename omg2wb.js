@@ -1,39 +1,67 @@
-var OmgDeviceTopic = "open-mqtt-gateway";
-var deviceWhiteList = [];
-var BtOnlySensors = true;
+var gatewayName = "open-mqtt-gateway";
+var mqttBaseTopic = "";
 var debugMode = false;
+
+
+bleGateway = { //see https://docs.openmqttgateway.com/use/ble.html
+    "onlysensors": true,
+    "interval": 55000, //ms
+    "minrssi": -200,
+    "scanbcnct": 30,
+    "hasspresence": false,
+    "bleconnect": false,
+    "white-list": [],
+    "black-list": []
+}
 
 writeSettings();
 
-trackMqtt(OmgDeviceTopic + "/LWT", function (message) {
-  deviceName = OmgDeviceTopic;
-  controlName = "status";
-  
-  virtualDevice = createDeviceIsNotExists(deviceName);
-  createControlIsNotExists(virtualDevice, controlName, "text", "offline", true);
-  dev[deviceName + "/" + controlName] = message.value;
-   
+trackMqtt(mqttBaseTopic + gatewayName + "/LWT", function (message) {
+    deviceName = gatewayName;
+    controlName = "status";
+
+    virtualDevice = createDeviceIsNotExists(deviceName);
+    createControlIsNotExists(virtualDevice, controlName, "text", "offline", true);
+    dev[deviceName + "/" + controlName] = message.value;
+
 });
 
-trackMqtt(OmgDeviceTopic + "/+/#", function (message) {
+trackMqtt(mqttBaseTopic + gatewayName + "/+/#", function (message) {
     debugLog("name: {}, value: {}".format(message.topic, message.value));
-    
-    protocol = getProtocol(message.topic);
 
-    switch (protocol) {
+    gatewayType = getGatewayType(message.topic);
+
+    switch (gatewayType) {
         case "SYStoMQTT":
-                universalParse("OMG", "", message);
+            universalParse("", "", message);
             break;
         case "BTtoMQTT":
-                universalParse("BTtoMQTT", "id", message);
-            break;    
+            universalParse("BT", "id", message);
+            break;
+        case "ADCtoMQTT":
+            universalParse("{}_ADC".format(gatewayName), "", message);
+            break;
+        case "DHTtoMQTT":
+            universalParse("{}_DHT".format(gatewayName), "", message);
+            break;
+        case "HCSR501toMQTT":
+            universalParse("{}_HCSR501".format(gatewayName), "", message);
+            break;
+        case "CLIMAtoMQTT":
+            sensorType = getSensorType(message.topic);
+            if (sensorType === "ds1820") {
+                ds1820(message);
+            } else {
+                universalParse("{}_{}".format(gatewayName, sensorType), "", message);
+            }
+            break;
         default:
             break;
     }
 });
 
 function writeSettings() {
-    publishValue("", OmgDeviceTopic + "/commands/MQTTtoBT/config", JSON.stringify({ "onlysensors": BtOnlySensors }))
+    publishValue("", mqttBaseTopic + gatewayName + "/commands/MQTTtoBT/config", JSON.stringify(bleGateway))
 }
 
 function debugLog(str) {
@@ -42,44 +70,58 @@ function debugLog(str) {
     }
 }
 
+function ds1820(message) {
+    var device = JSON.parse(message.value);
+    virtualDevice = undefined;
+    deviceName = "{}_ds18b20".format(gatewayName);
+    virtualDevice = createDeviceIsNotExists(deviceName);
+
+    for (var key in device) {
+
+        newValue = formatValue(device["tempc"]);
+        controlType = getControlType(newValue);
+        controlDefaultValue = getDefaultValue(controlType);
+        controlName = device["addr"];
+
+        createControlIsNotExists(virtualDevice, controlName, controlType, controlDefaultValue, true);
+        dev[deviceName + "/" + controlName] = newValue;
+    }
+}
+
 function universalParse(prefix, idKey, message) {
     var device = JSON.parse(message.value);
     virtualDevice = undefined;
-	
-  	if (prefix === "OMG") {
-		deviceName = OmgDeviceTopic;      
-    } else{
-		deviceName = "{}_{}".format(prefix, device[idKey]);            
-    }
-  
-    virtualDevice = createDeviceIsNotExists(deviceName);
 
-    if (isAllowDevice(device[idKey])) {
-        for (var key in device) {
+    deviceName = gatewayName;
 
-            newValue = formatValue(device[key]);
-            controlType = getControlType(newValue);
-            controlDefaultValue = getDefaultValue(controlType);
-            controlName = key;
-
-            createControlIsNotExists(virtualDevice, controlName, controlType, controlDefaultValue, true);
-            dev[deviceName + "/" + controlName] = newValue;
+    if (idKey && prefix) {
+        deviceName = "{}_{}".format(prefix, device[idKey]);
+    } else {
+        if (prefix) {
+            deviceName = "{}".format(prefix);
         }
     }
-}
 
-function getProtocol(topic){
-    return topic.split('/')[1];
-}
+    virtualDevice = createDeviceIsNotExists(deviceName);
 
-function isAllowDevice(deviceName) {
-    result = (deviceWhiteList.length === 0);
-    if (typeof deviceName !== "undefined") {
-        deviceWhiteList.forEach(function (item) {
-            result = deviceName.indexOf(item) > -1;
-        });
+    for (var key in device) {
+
+        newValue = formatValue(device[key]);
+        controlType = getControlType(newValue);
+        controlDefaultValue = getDefaultValue(controlType);
+        controlName = key;
+
+        createControlIsNotExists(virtualDevice, controlName, controlType, controlDefaultValue, true);
+        dev[deviceName + "/" + controlName] = newValue;
     }
-    return result;
+}
+
+function getGatewayType(topic) {
+    return mqttBaseTopic ? topic.split('/')[2] : topic.split('/')[1];
+}
+
+function getSensorType(topic) {
+    return mqttBaseTopic ? topic.split('/')[3] : topic.split('/')[2];
 }
 
 function getControlType(value) {
