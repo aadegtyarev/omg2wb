@@ -46,6 +46,21 @@ trackMqtt(mqttBaseTopic + gatewayName + "/+/#", function (message) {
         case "HCSR501toMQTT":
             universalParse("{}_HCSR501".format(gatewayName), "", message);
             break;
+        case "LORAtoMQTT":
+            writeRaw(gatewayType, "{}_LORA".format(gatewayName), message);
+            break;
+        case "2GtoMQTT":
+            writeRaw(gatewayType, "{}_2G".format(gatewayName), message);
+            break;
+        case "RS232toMQTT":
+            writeRaw(gatewayType, "{}_RS232".format(gatewayName), message);
+            break;
+        case "RStoMQTT":
+            writeRaw(gatewayType, "{}_RS232".format(gatewayName), message);
+            break;    
+        case "RFM69toMQTT":
+            writeRaw(gatewayType, "{}_RFM69".format(gatewayName), message);
+            break;
         case "CLIMAtoMQTT":
             sensorType = getSensorType(message.topic);
             if (sensorType === "ds1820") {
@@ -67,6 +82,58 @@ function debugLog(str) {
     if (debugMode) {
         log.info(str)
     }
+}
+
+function writeRaw(gatewayType, prefix, message) {
+    deviceName = "{}".format(prefix);
+    virtualDevice = createDeviceIsNotExists(deviceName);
+    newValue = formatValue(message.value);
+    controlType = getControlType(newValue);
+    controlDefaultValue = getDefaultValue(controlType);
+    controlName = "Msg";
+
+    createControlIsNotExists(virtualDevice, controlName, controlType, controlDefaultValue, true)
+    dev[deviceName + "/" + controlName] = newValue;
+
+    controlSendName = "Send";
+    if (createControlIsNotExists(virtualDevice, controlSendName, "text", "", false)) {
+        controlPath = "{}/{}".format(deviceName, controlSendName);
+
+        switch (gatewayType) {
+            case "LORAtoMQTT":
+                mqttToType = "MQTTtoLORA";
+                break;
+            case "2GtoMQTT":
+                mqttToType = "MQTTto2G";
+                break;
+            case "RS232toMQTT":
+                mqttToType = "MQTTtoRS232";
+                break;
+            case "RStoMQTT":
+                mqttToType = "MQTTtoRS232";
+                break;
+            case "RFM69toMQTT":
+                mqttToType = "MQTTtoRFM69";
+                break;
+            default:
+                mqttToType = "default";
+                break;
+        }
+
+        topicPath = mqttBaseTopic + gatewayName + "/commands/{}".format(mqttToType);
+        dev[deviceName + "/" + controlSendName] = "{}";
+
+        addAction(controlPath, topicPath, "", "");
+    }
+}
+
+function addAction(controlPath, topicPath, statusTopic, commandTopic) {
+    defineRule({
+        whenChanged: "{}".format(controlPath),
+        then: function (newValue, devName, cellName) {
+            publishValue(statusTopic, topicPath, newValue);
+        }
+    });
 }
 
 function ds1820(message) {
@@ -177,6 +244,9 @@ function createControlIsNotExists(virtualDevice, controlName, controlType, contr
                 order: 0
             }
         );
+        return true;
+    } else {
+        return false;
     }
 }
 
